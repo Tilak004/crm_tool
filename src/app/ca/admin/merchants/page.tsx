@@ -15,6 +15,10 @@ export default async function AdminMerchants({ searchParams }: { searchParams: P
     orderBy: { businessName: "asc" },
     include: { users: { where: { role: "MERCHANT" } } },
   });
+  // Invoice-file counts for inactive merchants, for the "keep a copy" links in Delete….
+  const fileCounts: Record<string, number> = Object.fromEntries(await Promise.all(
+    merchants.filter((m) => !m.active).map(async (m) => [m.id, await db.dayAttachment.count({ where: { saleDay: { merchantId: m.id } } })]),
+  ));
 
   return (
     <div className="space-y-6">
@@ -95,6 +99,11 @@ export default async function AdminMerchants({ searchParams }: { searchParams: P
                           <p>
                             Permanently deletes this merchant&apos;s login, sales days, invoices, items, employees,
                             attendance and uploaded files. This can&apos;t be undone. The Edit log keeps its entries.
+                          </p>
+                          <p className="font-medium">
+                            First keep a copy:{" "}
+                            <a href={`/api/merchants/${m.id}/export`} className="underline" download>all data (Excel)</a>
+                            {fileCounts[m.id] ? <> and <a href={`/api/merchants/${m.id}/files`} className="underline" download>invoice files (ZIP)</a></> : null}
                           </p>
                           <ActionForm action={deleteMerchant.bind(null, m.id)} submitLabel="Delete permanently" resetOnSuccess={false} className="space-y-2">
                             <label className="block">

@@ -1,43 +1,44 @@
 {
-    "name":  "gst-portal",
-    "version":  "0.1.0",
-    "private":  true,
-    "scripts":  {
-                    "dev":  "next dev",
-                    "build":  "next build",
-                    "start":  "next start",
-                    "lint":  "eslint",
-                    "postinstall":  "prisma generate",
-                    "db:push":  "prisma db push",
-                    "seed":  "tsx prisma/seed.ts",
-                    "hsn:import":  "tsx prisma/import-hsn.ts",
-                    "reset-2fa":  "tsx prisma/reset-2fa.ts",
-                    "reset-password":  "tsx prisma/reset-password.ts",
-                    "delete-merchant":  "tsx --conditions=react-server prisma/delete-merchant.ts"
-                },
-    "dependencies":  {
-                         "@prisma/client":  "^6.16.2",
-                         "bcryptjs":  "^3.0.2",
-                         "exceljs":  "^4.4.0",
-                         "jose":  "^6.1.0",
-                         "next":  "15.5.4",
-                         "qrcode":  "^1.5.4",
-                         "react":  "19.1.0",
-                         "react-dom":  "19.1.0",
-                         "server-only":  "^0.0.1"
-                     },
-    "devDependencies":  {
-                            "@eslint/eslintrc":  "^3",
-                            "@tailwindcss/postcss":  "^4",
-                            "@types/node":  "^20",
-                            "@types/qrcode":  "^1.5.5",
-                            "@types/react":  "^19",
-                            "@types/react-dom":  "^19",
-                            "eslint":  "^9",
-                            "eslint-config-next":  "15.5.4",
-                            "prisma":  "^6.16.2",
-                            "tailwindcss":  "^4",
-                            "tsx":  "^4.20.5",
-                            "typescript":  "^5"
-                        }
+    "name": "gst-portal",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next start",
+        "lint": "eslint",
+        "postinstall": "prisma generate",
+        "db:push": "prisma db push",
+        "seed": "tsx prisma/seed.ts",
+        "hsn:import": "tsx prisma/import-hsn.ts",
+        "reset-2fa": "tsx prisma/reset-2fa.ts",
+        "reset-password": "tsx prisma/reset-password.ts",
+        "delete-merchant": "tsx --conditions=react-server prisma/delete-merchant.ts"
+    },
+    "dependencies": {
+        "@prisma/client": "^6.16.2",
+        "bcryptjs": "^3.0.2",
+        "exceljs": "^4.4.0",
+        "jose": "^6.1.0",
+        "jszip": "^3.10.2",
+        "next": "15.5.4",
+        "qrcode": "^1.5.4",
+        "react": "19.1.0",
+        "react-dom": "19.1.0",
+        "server-only": "^0.0.1"
+    },
+    "devDependencies": {
+        "@eslint/eslintrc": "^3",
+        "@tailwindcss/postcss": "^4",
+        "@types/node": "^20",
+        "@types/qrcode": "^1.5.5",
+        "@types/react": "^19",
+        "@types/react-dom": "^19",
+        "eslint": "^9",
+        "eslint-config-next": "15.5.4",
+        "prisma": "^6.16.2",
+        "tailwindcss": "^4",
+        "tsx": "^4.20.5",
+        "typescript": "^5"
+    }
 }

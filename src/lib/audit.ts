@@ -25,6 +25,7 @@ export const AUDIT_ACTIONS = {
   MERCHANT_UPDATED: "Merchant details changed",
   MERCHANT_STATUS: "Merchant activated/deactivated",
   MERCHANT_DELETED: "Merchant deleted",
+  MERCHANT_EXPORTED: "Merchant data downloaded",
   HSN_ACCESS: "Merchant HSN access changed",
   USER_CREATED: "CA user created",
   USER_STATUS: "User activated/deactivated",

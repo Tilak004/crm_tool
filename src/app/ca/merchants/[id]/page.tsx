@@ -40,10 +40,11 @@ export default async function MerchantDetail({ params }: { params: Promise<{ id:
   });
   if (!merchant) notFound();
 
-  const [itemCount, unmappedCount, remarks] = await Promise.all([
+  const [itemCount, unmappedCount, remarks, fileCount] = await Promise.all([
     db.item.count({ where: { merchantId: id } }),
     db.item.count({ where: { merchantId: id, hsnCode: null } }),
     remarksForMerchant(id),
+    db.dayAttachment.count({ where: { saleDay: { merchantId: id } } }),
   ]);
 
   return (
@@ -66,6 +67,12 @@ export default async function MerchantDetail({ params }: { params: Promise<{ id:
             </Link>
           }
         />
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+          <a href={`/api/merchants/${id}/export`} className="btn btn-secondary text-sm" download>⬇ Download all data (Excel)</a>
+          {fileCount > 0 && (
+            <a href={`/api/merchants/${id}/files`} className="btn btn-secondary text-sm" download>⬇ Invoice files (ZIP, {fileCount})</a>
+          )}
+        </div>
       </div>
 
       {user.role === "ADMIN" && (

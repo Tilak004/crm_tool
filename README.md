@@ -6,7 +6,7 @@ A website run by the CA firm. Merchants record the items they sold each day. CA 
 
 | Role | Can do |
 |---|---|
-| **Admin** (CA) | Everything Staff can do, plus create/deactivate merchants and staff, reset passwords, and permanently delete a deactivated merchant (Delete…, type the business name to confirm; the edit log keeps the record) |
+| **Admin** (CA) | Everything Staff can do, plus create/deactivate merchants and staff, reset passwords, and permanently delete a deactivated merchant (Delete…, type the business name to confirm; the edit log keeps the record). Before deleting, download a copy: every merchant page has **Download all data (Excel)** (12 sheets: details, day summary, invoices, item-wise totals with GST split, items & HSN, employees, salary history, attendance, monthly salary, CA remarks, invoice file list, edit log) and **Invoice files (ZIP)**. CA staff can download too; each download is logged |
 | **Staff** (CA) | See all merchants' sales, map items to HSN/rate, lock/unlock days |
 | **Merchant** | Enter/edit their own daily sales until the CA locks that day |
 

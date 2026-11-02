@@ -91,7 +91,7 @@ All of these are typed in the **SSH** window.
 | Install the latest code from GitHub (after every push) | `sudo bash /opt/gst-portal/deploy/update.sh` |
 | Reset someone's authenticator | `sudo bash /opt/gst-portal/deploy/reset-2fa.sh <username>` |
 | Forgotten password (e.g. admin) | `sudo bash /opt/gst-portal/deploy/reset-password.sh admin` (asks for the new one) |
-| Delete a merchant (e.g. a test one) with all their data | `sudo bash /opt/gst-portal/deploy/delete-merchant.sh <their login username>` (shows what will go, asks you to type DELETE). Or on the website: Merchants → Deactivate → Delete… |
+| Delete a merchant (e.g. a test one) with all their data | `sudo bash /opt/gst-portal/deploy/delete-merchant.sh <their login username>` (shows what will go, asks you to type DELETE). Or on the website: Merchants → Deactivate → Delete…. To keep a copy first, open the merchant's page and click **Download all data (Excel)** and **Invoice files (ZIP)** |
 | Is the app running? | `sudo systemctl status gst-portal` |
 | Restart the app | `sudo systemctl restart gst-portal` |
 | See recent errors | `sudo journalctl -u gst-portal -n 100` |
