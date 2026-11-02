@@ -83,7 +83,49 @@ export async function buildMerchantWorkbook(merchantId: string, exportedBy: stri
     info.map(([k, v]) => ({ k, v })));
   ws.autoFilter = undefined;
 
-  // 2. Day summary: one row per sales day, totals per payment mode
+  // 2. Monthly summary: what the CA needs for the monthly return
+  type MonthTotals = {
+    month: string; days: number; invoices: number; total: number; taxable: number; tax: number; unmapped: number;
+    byMode: Record<string, number>;
+  };
+  const months = new Map<string, MonthTotals>();
+  for (const d of days) {
+    const key = d.date.slice(0, 7);
+    let m = months.get(key);
+    if (!m) {
+      m = { month: key, days: 0, invoices: 0, total: 0, taxable: 0, tax: 0, unmapped: 0, byMode: Object.fromEntries(PAYMENT_MODES.map((p) => [p.key, 0])) };
+      months.set(key, m);
+    }
+    m.days++;
+    m.invoices += d.invoices.length;
+    for (const inv of d.invoices) for (const l of inv.lines) {
+      m.byMode[inv.mode] = (m.byMode[inv.mode] ?? 0) + l.amountPaise;
+      m.total += l.amountPaise;
+    }
+    for (const l of d.lines) {
+      if (l.item.gstRate == null) { m.unmapped += l.amountPaise; continue; }
+      const split = splitInclusive(l.amountPaise, l.item.gstRate);
+      m.taxable += split.taxable;
+      m.tax += split.tax;
+    }
+  }
+  addSheet(wb, "Monthly summary", [
+    { header: "Month", key: "month", width: 10 }, { header: "Days with sales", key: "days", width: 15 },
+    { header: "Invoices", key: "invoices" },
+    ...PAYMENT_MODES.map((m) => ({ header: m.label, key: m.key, money: true })),
+    { header: "Bank total (UPI + card + other)", key: "bank", money: true, width: 18 },
+    { header: "Total incl. GST", key: "total", money: true, width: 16 },
+    { header: "Taxable value (mapped items)", key: "taxable", money: true, width: 18 },
+    { header: "GST (mapped items)", key: "tax", money: true, width: 16 },
+    { header: "Sales of items without HSN/rate", key: "unmapped", money: true, width: 18 },
+  ], [...months.values()].map((m) => ({
+    month: m.month, days: m.days, invoices: m.invoices,
+    ...Object.fromEntries(Object.entries(m.byMode).map(([k, v]) => [k, rs(v)])),
+    bank: rs(PAYMENT_MODES.filter((p) => p.bank).reduce((n, p) => n + (m.byMode[p.key] ?? 0), 0)),
+    total: rs(m.total), taxable: rs(m.taxable), tax: rs(m.tax), unmapped: rs(m.unmapped),
+  })));
+
+  // 3. Day summary: one row per sales day, totals per payment mode (the detail behind the monthly figures)
   addSheet(wb, "Day summary", [
     { header: "Date", key: "date" }, { header: "Status", key: "status", width: 14 },
     { header: "Invoices", key: "invoices" },
