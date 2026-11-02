@@ -29,7 +29,7 @@ export async function markRemarksSeen(
   remarks: RemarkView[],
 ) {
   const unseen = remarks.filter((r) => !r.seenAt);
-  if (unseen.length === 0) return remarks;
+  if (unseen.length === 0) return remarks.map((r) => ({ ...r, isNew: false }));
   const now = new Date();
   await db.$transaction(async (tx) => {
     for (const r of unseen) {
