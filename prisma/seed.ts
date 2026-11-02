@@ -16,7 +16,8 @@ async function main() {
     await db.user.create({
       data: { name: "CA Admin", username: adminUser, role: "ADMIN", passwordHash: await bcrypt.hash(adminPass, 10) },
     });
-    console.log(`Created admin: ${adminUser} / ${adminPass}`);
+    // Only echo the password when it's the well-known development default.
+    console.log(`Created admin: ${adminUser}${process.env.SEED_ADMIN_PASSWORD ? "" : ` / ${adminPass}`}`);
   }
 
   if (process.argv.includes("--demo") && !(await db.user.findUnique({ where: { username: "demo-shop" } }))) {
