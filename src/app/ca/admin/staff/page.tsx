@@ -1,7 +1,7 @@
 import ActionForm from "@/components/ActionForm";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { createStaff, resetPassword, setUserActive } from "../../actions";
+import { createStaff, resetPassword, resetTwoFactor, setUserActive } from "../../actions";
 
 export default async function AdminStaff() {
   const me = await requireAdmin();
@@ -43,7 +43,7 @@ export default async function AdminStaff() {
       <section className="card overflow-x-auto">
         <table className="table">
           <thead>
-            <tr><th>Name</th><th>Username</th><th>Role</th><th className="text-right">Items mapped</th><th>Status</th><th>Reset password</th><th></th></tr>
+            <tr><th>Name</th><th>Username</th><th>Role</th><th className="text-right">Items mapped</th><th>Status</th><th>Authenticator</th><th>Reset password</th><th></th></tr>
           </thead>
           <tbody>
             {staff.map((u) => (
@@ -56,6 +56,21 @@ export default async function AdminStaff() {
                   {u.active
                     ? <span className="badge bg-green-100 text-green-800">Active</span>
                     : <span className="badge bg-red-100 text-red-700">Inactive</span>}
+                </td>
+                <td>
+                  {u.totpEnabledAt ? (
+                    <form action={resetTwoFactor.bind(null, u.id)} className="flex items-center gap-2">
+                      <span className="badge bg-green-100 text-green-800">✓ Set up</span>
+                      <button className="text-xs text-red-700 hover:underline" title="Use if their phone is lost or replaced. They will scan a new QR code at next sign-in.">
+                        Reset
+                      </button>
+                    </form>
+                  ) : (
+                    <span className="badge bg-amber-100 text-amber-800" title="They will scan a QR code at their next sign-in">Not set up yet</span>
+                  )}
+                  {u.totpLockedUntil && u.totpLockedUntil > new Date() && (
+                    <div className="mt-1 text-xs text-red-700">Locked (wrong codes) until {u.totpLockedUntil.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" })}</div>
+                  )}
                 </td>
                 <td>
                   <ActionForm action={resetPassword.bind(null, u.id)} submitLabel="Set" className="flex items-center gap-2">

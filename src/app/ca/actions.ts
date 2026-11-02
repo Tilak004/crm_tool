@@ -315,6 +315,22 @@ export async function setUserActive(userId: string, active: boolean) {
   revalidatePath("/ca", "layout");
 }
 
+/** Clears a CA user's authenticator; they set it up again (new QR code) at their next sign-in. */
+export async function resetTwoFactor(userId: string) {
+  const me = await requireAdmin();
+  await db.$transaction(async (tx) => {
+    const u = await tx.user.update({
+      where: { id: userId },
+      data: { totpSecret: null, totpEnabledAt: null, totpLastStep: null, totpFailures: 0, totpLockedUntil: null },
+    });
+    await audit(tx, {
+      actor: actorOf(me), action: "TWO_FACTOR_RESET",
+      summary: `Authenticator reset for ${u.username}; they will set it up again at next sign-in`, details: { userId },
+    });
+  });
+  revalidatePath("/ca/admin/staff");
+}
+
 export async function resetPassword(userId: string, _prev: FormState, form: FormData): Promise<FormState> {
   const me = await requireAdmin();
   const password = String(form.get("password") ?? "");

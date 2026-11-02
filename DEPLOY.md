@@ -62,11 +62,25 @@ sudo bash setup.sh
 
 4. Wait. It installs everything, loads the official HSN list and builds the app, which takes 10–15 minutes on this small server. It ends with **Done!**
 
-5. Open `https://mygstportal.duckdns.org` and log in as **admin** with the password you chose. The first visit can take a minute while the HTTPS certificate is issued.
+5. Open `https://mygstportal.duckdns.org/ca-login` and sign in as **admin** with the password you chose. The first time, set up your authenticator app (see *Two sign-in pages* below). The first visit can take a minute while the HTTPS certificate is issued.
 
 Then create your staff accounts (**Staff**) and merchants (**Merchants**) as usual.
 
 ---
+
+## Two sign-in pages
+
+| Who | Address | What they need |
+|---|---|---|
+| Clients (merchants) | `https://your-site/login` | username + password |
+| CA admin and staff | `https://your-site/ca-login` | username + password **+ 6-digit code from Google/Microsoft Authenticator** |
+
+- The client page refuses CA accounts, so a client who learns the admin's password still can't get in without the CA's phone.
+- **First CA sign-in:** after the password, a QR code appears. Install Google Authenticator or Microsoft Authenticator on your phone, tap **+**, scan it, and type the 6-digit code.
+- 5 wrong codes lock that account for 15 minutes.
+- **A staff member lost their phone:** the admin opens **Staff** and clicks **Reset** in the Authenticator column. They scan a new QR code at their next sign-in.
+- **The admin lost their phone:** in the SSH window run `sudo bash /opt/gst-portal/deploy/reset-2fa.sh admin`.
+- Don't change `SESSION_SECRET` in `/etc/gst-portal.env`. The authenticator keys are encrypted with it, and everyone would have to set up again.
 
 ## Everyday tasks
 
@@ -74,7 +88,8 @@ All of these are typed in the **SSH** window.
 
 | Task | Command |
 |---|---|
-| Install the latest code from GitHub | `sudo bash /opt/gst-portal/deploy/update.sh` |
+| Install the latest code from GitHub (after every push) | `sudo bash /opt/gst-portal/deploy/update.sh` |
+| Reset someone's authenticator | `sudo bash /opt/gst-portal/deploy/reset-2fa.sh <username>` |
 | Is the app running? | `sudo systemctl status gst-portal` |
 | Restart the app | `sudo systemctl restart gst-portal` |
 | See recent errors | `sudo journalctl -u gst-portal -n 100` |

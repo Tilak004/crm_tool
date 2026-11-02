@@ -28,6 +28,8 @@ export const AUDIT_ACTIONS = {
   USER_CREATED: "CA user created",
   USER_STATUS: "User activated/deactivated",
   PASSWORD_RESET: "Password reset",
+  TWO_FACTOR_ENROLLED: "Authenticator set up",
+  TWO_FACTOR_RESET: "Authenticator reset",
   HSN_IMPORTED: "HSN list imported",
   EMPLOYEE_ADDED: "Employee added",
   EMPLOYEE_UPDATED: "Employee details changed",

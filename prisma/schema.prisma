@@ -21,6 +21,13 @@ model User {
   merchant     Merchant? @relation(fields: [merchantId], references: [id])
   createdAt    DateTime  @default(now())
 
+  // Authenticator-app second step, required for ADMIN and STAFF (lib/totp.ts).
+  totpSecret      String? // encrypted; null = not set up yet (set up at next login)
+  totpEnabledAt   DateTime?
+  totpLastStep    Int? // last accepted time step, so a code can't be reused
+  totpFailures    Int       @default(0)
+  totpLockedUntil DateTime?
+
   mappedItems Item[]    @relation("MappedBy")
   lockedDays  SaleDay[] @relation("LockedBy")
 }

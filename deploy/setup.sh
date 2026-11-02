@@ -144,7 +144,9 @@ echo "30 21 * * * root /usr/local/bin/gst-portal-backup" > /etc/cron.d/gst-porta
 echo
 echo "Done!"
 echo "  Open:      https://$DOMAIN   (the HTTPS certificate can take a minute the first time)"
-echo "  Log in:    admin / the password you just chose"
+echo "  Clients:   https://$DOMAIN/login"
+echo "  CA admin:  https://$DOMAIN/ca-login   (admin / the password you just chose;"
+echo "             the first sign-in shows a QR code for Google/Microsoft Authenticator)"
 echo "  Status:    sudo systemctl status gst-portal"
 echo "  App logs:  sudo journalctl -u gst-portal -n 100"
 echo "  Update:    sudo bash $APP_DIR/deploy/update.sh"
