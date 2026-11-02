@@ -6,7 +6,7 @@ A website run by the CA firm. Merchants record the items they sold each day. CA 
 
 | Role | Can do |
 |---|---|
-| **Admin** (CA) | Everything Staff can do, plus create/deactivate merchants and staff and reset passwords |
+| **Admin** (CA) | Everything Staff can do, plus create/deactivate merchants and staff, reset passwords, and permanently delete a deactivated merchant (Delete…, type the business name to confirm; the edit log keeps the record) |
 | **Staff** (CA) | See all merchants' sales, map items to HSN/rate, lock/unlock days |
 | **Merchant** | Enter/edit their own daily sales until the CA locks that day |
 
@@ -37,8 +37,9 @@ A website run by the CA firm. Merchants record the items they sold each day. CA 
 
 ## Employees and attendance
 
-- Merchants manage staff under **Employees**: name, role, phone, monthly salary and joining date, plus a last working day if someone leaves. A salary change applies from a chosen month, so earlier months keep the old figure.
-- **Attendance** is a month grid with one row per employee and one column per day. Marks are Present, Absent, Half day, Paid leave and Weekly off / Holiday. Days not yet marked count as paid until marked.
+- Merchants manage staff under **Employees**: name, role, phone, monthly salary and joining date, plus a last working day if someone leaves. **Edit / Remove → Left the company** moves the person to *Former employees*: they disappear from the list and from daily attendance after that day, but their attendance and salary records stay in the database. A salary change applies from a chosen month, so earlier months keep the old figure.
+- **Attendance → Day** is built for many employees: one line per person, a search box, count tiles that filter (Present, Absent, Not marked…), "Mark everyone not yet marked as Present", and tick boxes to mark several people Absent / Leave / Off at once.
+- **Attendance → Month sheet** is a month grid with one row per employee and one column per day. Marks are Present, Absent, Half day, Paid leave and Weekly off / Holiday. Days not yet marked count as paid until marked.
 - Per-day pay = monthly salary ÷ days in that month. An absent day deducts one day's pay and a half day deducts half. Days before joining or after leaving are not paid.
 - CA users see each merchant's sheet read-only (merchant page → *Attendance & salary*). Adding employees, salary changes and every attendance mark go into the edit log.
 - Nothing is deleted automatically. The month picker covers the last 12 months, and older data stays in the database.

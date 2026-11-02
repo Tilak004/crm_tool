@@ -40,6 +40,11 @@ export async function deleteUpload(key: string) {
   await rm(resolveKey(key), { force: true });
 }
 
+/** Removes every file of one merchant (used when the merchant is deleted). */
+export async function deleteMerchantUploads(merchantId: string) {
+  await rm(resolveKey(safeSegment(merchantId)), { recursive: true, force: true });
+}
+
 function resolveKey(key: string) {
   const full = path.resolve(ROOT, key);
   if (!full.startsWith(ROOT + path.sep)) throw new Error("Invalid storage key");

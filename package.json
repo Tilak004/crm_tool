@@ -12,7 +12,8 @@
                     "seed":  "tsx prisma/seed.ts",
                     "hsn:import":  "tsx prisma/import-hsn.ts",
                     "reset-2fa":  "tsx prisma/reset-2fa.ts",
-                    "reset-password":  "tsx prisma/reset-password.ts"
+                    "reset-password":  "tsx prisma/reset-password.ts",
+                    "delete-merchant":  "tsx --conditions=react-server prisma/delete-merchant.ts"
                 },
     "dependencies":  {
                          "@prisma/client":  "^6.16.2",

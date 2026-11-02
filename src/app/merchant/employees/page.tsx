@@ -5,16 +5,23 @@ import { requireMerchant } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatDate, formatPaise, todayIST } from "@/lib/gst";
 import { monthLabel, salaryForMonth } from "@/lib/payroll";
-import { addEmployee, changeSalary, updateEmployee } from "./actions";
+import { addEmployee, changeSalary, markEmployeeLeft, updateEmployee } from "./actions";
 
-export default async function EmployeesPage() {
+export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ show?: string; left?: string; removed?: string }> }) {
   const { merchant } = await requireMerchant();
+  const sp = await searchParams;
+  const showFormer = sp.show === "former";
+  const removedMarks = Number(sp.removed) || 0;
   const today = todayIST();
-  const employees = await db.employee.findMany({
+  const all = await db.employee.findMany({
     where: { merchantId: merchant.id },
     include: { salaries: { orderBy: { effectiveMonth: "desc" } } },
-    orderBy: [{ leftDate: { sort: "asc", nulls: "first" } }, { name: "asc" }],
+    orderBy: { name: "asc" },
   });
+  // Someone whose last working day is today or later still works here until then.
+  const hasLeft = (e: { leftDate: string | null }) => !!e.leftDate && e.leftDate < today;
+  const formerCount = all.filter(hasLeft).length;
+  const employees = all.filter((e) => hasLeft(e) === showFormer);
 
   return (
     <div className="space-y-6">
@@ -34,6 +41,23 @@ export default async function EmployeesPage() {
         </ActionForm>
       </section>
 
+      {sp.left && (
+        <p className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          {sp.left} moved to Former employees. Their attendance and salary records are kept.
+          {removedMarks > 0 && ` ${removedMarks} attendance mark(s) after the last working day were removed.`}
+        </p>
+      )}
+      <div className="inline-flex rounded-lg border border-gray-300 bg-white p-0.5 text-sm" role="tablist">
+        <Link href="/merchant/employees" role="tab" aria-selected={!showFormer}
+          className={`rounded-md px-4 py-1.5 ${!showFormer ? "bg-blue-700 text-white" : "text-gray-700 hover:bg-gray-50"}`}>
+          Working ({all.length - formerCount})
+        </Link>
+        <Link href="/merchant/employees?show=former" role="tab" aria-selected={showFormer}
+          className={`rounded-md px-4 py-1.5 ${showFormer ? "bg-blue-700 text-white" : "text-gray-700 hover:bg-gray-50"}`}>
+          Former employees ({formerCount})
+        </Link>
+      </div>
+
       <section className="card overflow-x-auto">
         <table className="table">
           <thead>
@@ -41,11 +65,13 @@ export default async function EmployeesPage() {
           </thead>
           <tbody>
             {employees.length === 0 && (
-              <tr><td colSpan={7} className="py-8 text-center text-gray-500">No employees yet. Add your first one above.</td></tr>
+              <tr><td colSpan={7} className="py-8 text-center text-gray-500">
+                {showFormer ? "No former employees." : "No employees yet. Add your first one above."}
+              </td></tr>
             )}
             {employees.map((e) => {
               const current = salaryForMonth(e.salaries, today.slice(0, 7));
-              const left = e.leftDate && e.leftDate < today;
+              const left = hasLeft(e);
               return (
                 <tr key={e.id} className="align-top">
                   <td className="font-medium">{e.name}</td>
@@ -56,11 +82,22 @@ export default async function EmployeesPage() {
                   <td>
                     {left
                       ? <span className="badge bg-gray-200 text-gray-700">Left {formatDate(e.leftDate!)}</span>
-                      : <span className="badge bg-green-100 text-green-800">Working</span>}
+                      : e.leftDate
+                        ? <span className="badge bg-amber-100 text-amber-800">Leaving {formatDate(e.leftDate)}</span>
+                        : <span className="badge bg-green-100 text-green-800">Working</span>}
                   </td>
                   <td className="min-w-72">
-                    <Disclosure summary="Edit" defaultOpen={false}>
+                    <Disclosure summary={e.leftDate ? "Edit" : "Edit / Remove"} defaultOpen={false}>
                       <div className="mt-3 space-y-4">
+                        {!e.leftDate && (
+                          <ActionForm action={markEmployeeLeft.bind(null, e.id)} submitLabel="Left the company" className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                            <Field name="leftDate" label="Last working day" type="date" required defaultValue={today} min={e.joinDate} />
+                            <p className="text-xs text-gray-500">
+                              {e.name} moves to Former employees and stops appearing in daily attendance after this day.
+                              Past attendance and salary records are kept.
+                            </p>
+                          </ActionForm>
+                        )}
                         <ActionForm action={updateEmployee.bind(null, e.id)} submitLabel="Save details" resetOnSuccess={false} className="space-y-2">
                           <div className="grid gap-2 sm:grid-cols-2">
                             <Field name="name" label="Name" defaultValue={e.name} required />

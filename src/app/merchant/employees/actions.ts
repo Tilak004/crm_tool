@@ -1,6 +1,8 @@
 "use server";
 
+import type { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { actorOf, audit } from "@/lib/audit";
 import { requireMerchant } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -20,6 +22,13 @@ function readSalary(form: FormData): number | { error: string } {
 async function ownEmployee(merchantId: string, employeeId: string) {
   const e = await db.employee.findUnique({ where: { id: employeeId } });
   return e && e.merchantId === merchantId ? e : null;
+}
+
+/** Marks after an employee's last working day no longer count; remove them so the sheet stays clean. */
+async function clearMarksAfter(tx: Prisma.TransactionClient, employeeId: string, leftDate: string | null) {
+  if (!leftDate) return 0;
+  const { count } = await tx.attendance.deleteMany({ where: { employeeId, date: { gt: leftDate } } });
+  return count;
 }
 
 function revalidate() {
@@ -73,15 +82,45 @@ export async function updateEmployee(employeeId: string, _prev: Result | null, f
   const changes = (Object.keys(after) as (keyof typeof after)[]).filter((k) => before[k] !== after[k]).map((k) => `${k}: ${before[k] || "—"} → ${after[k] || "—"}`);
   if (changes.length === 0) return { ok: true, message: "No changes." };
 
-  await db.$transaction(async (tx) => {
+  const removed = await db.$transaction(async (tx) => {
     await tx.employee.update({ where: { id: e.id }, data: { name, designation, phone, leftDate } });
+    const removed = await clearMarksAfter(tx, e.id, leftDate);
     await audit(tx, {
       actor: actorOf(user), action: "EMPLOYEE_UPDATED", merchant,
-      summary: `${e.name}: ${changes.join("; ")}`, details: { employeeId: e.id, before, after },
+      summary: `${e.name}: ${changes.join("; ")}${removed ? `; ${removed} attendance mark(s) after the last day removed` : ""}`,
+      details: { employeeId: e.id, before, after, marksRemoved: removed },
     });
+    return removed;
   });
   revalidate();
-  return { ok: true, message: "Saved." };
+  return { ok: true, message: removed ? `Saved. ${removed} attendance mark(s) after the last day were removed.` : "Saved." };
+}
+
+/**
+ * "Left the company": sets the last working day. The employee and their
+ * attendance and salary history stay in the database (and visible to the CA);
+ * they just stop appearing in the employee list and daily attendance.
+ */
+export async function markEmployeeLeft(employeeId: string, _prev: Result | null, form: FormData): Promise<Result> {
+  const { user, merchant } = await requireMerchant();
+  const e = await ownEmployee(merchant.id, employeeId);
+  if (!e) return { ok: false, message: "Employee not found." };
+  const leftDate = String(form.get("leftDate") ?? "");
+  if (!isValidDate(leftDate) || leftDate < e.joinDate) return { ok: false, message: "Last working day must be on or after the joining date." };
+
+  const removed = await db.$transaction(async (tx) => {
+    await tx.employee.update({ where: { id: e.id }, data: { leftDate } });
+    const removed = await clearMarksAfter(tx, e.id, leftDate);
+    await audit(tx, {
+      actor: actorOf(user), action: "EMPLOYEE_LEFT", merchant,
+      summary: `${e.name}: last working day ${leftDate}${removed ? `; ${removed} later attendance mark(s) removed` : ""}`,
+      details: { employeeId: e.id, leftDate, previousLeftDate: e.leftDate, marksRemoved: removed },
+    });
+    return removed;
+  });
+  revalidate();
+  // The row leaves the list, so the confirmation is shown at the top of the page.
+  redirect(`/merchant/employees?left=${encodeURIComponent(e.name)}&removed=${removed}`);
 }
 
 export async function changeSalary(employeeId: string, _prev: Result | null, form: FormData): Promise<Result> {
@@ -165,4 +204,39 @@ export async function markAllPresent(date: string): Promise<Result> {
   revalidatePath("/merchant/attendance");
   revalidatePath("/ca", "layout");
   return { ok: true, message: `${targets.length} marked present.` };
+}
+
+/** Gives the selected employees the same mark (or clears it, with status null) on one date. */
+export async function setAttendanceMany(employeeIds: string[], date: string, status: string | null): Promise<Result> {
+  const { user, merchant } = await requireMerchant();
+  if (!isValidDate(date) || date > todayIST()) return { ok: false, message: "You can't mark future dates." };
+  if (status !== null && !isAttendanceStatus(status)) return { ok: false, message: "Unknown mark." };
+  const ids = [...new Set(employeeIds)].slice(0, 1000);
+  const employees = await db.employee.findMany({
+    where: { merchantId: merchant.id, id: { in: ids } },
+    include: { attendance: { where: { date } } },
+  });
+  const targets = employees.filter((e) => isEmployedOn(e, date) && (e.attendance[0]?.status ?? null) !== status);
+  if (targets.length === 0) return { ok: true, message: "Nothing to change." };
+
+  await db.$transaction(async (tx) => {
+    for (const e of targets) {
+      if (status === null) await tx.attendance.delete({ where: { id: e.attendance[0].id } });
+      else {
+        await tx.attendance.upsert({
+          where: { employeeId_date: { employeeId: e.id, date } },
+          create: { employeeId: e.id, date, status, updatedById: user.id },
+          update: { status, updatedById: user.id },
+        });
+      }
+    }
+    await audit(tx, {
+      actor: actorOf(user), action: "ATTENDANCE_MARKED", merchant, saleDate: date,
+      summary: `${attendanceLabel(status)}: ${targets.map((e) => `${e.name}${e.attendance[0] ? ` (was ${attendanceLabel(e.attendance[0].status)})` : ""}`).join(", ")}`,
+      details: { date, to: status, changes: targets.map((e) => ({ employeeId: e.id, from: e.attendance[0]?.status ?? null })) },
+    });
+  });
+  revalidatePath("/merchant/attendance");
+  revalidatePath("/ca", "layout");
+  return { ok: true, message: `${targets.length} updated.` };
 }

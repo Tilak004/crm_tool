@@ -2,6 +2,7 @@
 
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { actorOf, audit } from "@/lib/audit";
 import { requireAdmin, requireCA } from "@/lib/auth";
 import { businessLabel, gstRegLabel, isGstRegType, parseBusinessTypes, serializeBusinessTypes } from "@/lib/business";
@@ -9,6 +10,8 @@ import { db } from "@/lib/db";
 import { parseDayEntry, persistDay, type InvoiceEntry, type PaymentEntry } from "@/lib/day-entry";
 import { mappingSummary, parseMapping } from "@/lib/hsn";
 import { GST_PORTAL_HSN_URL, downloadFromGstPortal, importHsnWorkbook, type ImportSummary } from "@/lib/hsn-import";
+import { deleteMerchantRecords, describeFootprint, merchantFootprint } from "@/lib/merchant-delete";
+import { deleteMerchantUploads } from "@/lib/uploads";
 
 // Every action here is written to the audit log. The only one that changes a
 // merchant's sales figures is caEditDay, which requires a reason the merchant sees.
@@ -274,6 +277,36 @@ export async function setMerchantActive(merchantId: string, active: boolean) {
     });
   });
   revalidatePath("/ca", "layout");
+}
+
+/**
+ * Permanently deletes a merchant with all their sales, items, employees,
+ * attendance and files. Only for an inactive merchant, and the admin must type
+ * the business name. The edit log keeps its entries (and records this deletion).
+ */
+export async function deleteMerchant(merchantId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const user = await requireAdmin();
+  const merchant = await db.merchant.findUnique({ where: { id: merchantId } });
+  if (!merchant) return { ok: false, message: "Merchant not found." };
+  if (merchant.active) return { ok: false, message: "Deactivate the merchant first." };
+  const typed = String(form.get("confirm") ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+  if (typed !== merchant.businessName.trim().replace(/\s+/g, " ").toLowerCase()) {
+    return { ok: false, message: `Type the business name exactly: ${merchant.businessName}` };
+  }
+
+  await db.$transaction(async (tx) => {
+    const footprint = await merchantFootprint(tx, merchant.id);
+    const logins = await tx.user.findMany({ where: { merchantId: merchant.id }, select: { username: true } });
+    await deleteMerchantRecords(tx, merchant.id);
+    await audit(tx, {
+      actor: actorOf(user), action: "MERCHANT_DELETED", merchant,
+      summary: `Deleted permanently: ${describeFootprint(footprint)}`,
+      details: { ...footprint, gstin: merchant.gstin, usernames: logins.map((l) => l.username) },
+    });
+  }, { timeout: 60_000 });
+  await deleteMerchantUploads(merchant.id);
+  revalidatePath("/ca", "layout");
+  redirect(`/ca/admin/merchants?deleted=${encodeURIComponent(merchant.businessName)}`);
 }
 
 // ---------- Staff (admin only) ----------

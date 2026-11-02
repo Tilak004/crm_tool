@@ -4,11 +4,12 @@ import BusinessBadges, { BusinessTypeFilter, businessTypeWhere } from "@/compone
 import BusinessFields from "@/components/BusinessFields";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { createMerchant, resetPassword, setMerchantActive, setMerchantHsnAccess } from "../../actions";
+import Disclosure from "@/components/Disclosure";
+import { createMerchant, deleteMerchant, resetPassword, setMerchantActive, setMerchantHsnAccess } from "../../actions";
 
-export default async function AdminMerchants({ searchParams }: { searchParams: Promise<{ type?: string }> }) {
+export default async function AdminMerchants({ searchParams }: { searchParams: Promise<{ type?: string; deleted?: string }> }) {
   await requireAdmin();
-  const { type = "" } = await searchParams;
+  const { type = "", deleted } = await searchParams;
   const merchants = await db.merchant.findMany({
     where: businessTypeWhere(type),
     orderBy: { businessName: "asc" },
@@ -17,6 +18,11 @@ export default async function AdminMerchants({ searchParams }: { searchParams: P
 
   return (
     <div className="space-y-6">
+      {deleted && (
+        <p className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          {deleted} and all its data were deleted. The deletion is recorded in the Edit log.
+        </p>
+      )}
       <section className="card p-4">
         <h1 className="mb-4 text-lg font-semibold">Add merchant</h1>
         <ActionForm action={createMerchant} submitLabel="Create merchant" className="space-y-4">
@@ -82,6 +88,24 @@ export default async function AdminMerchants({ searchParams }: { searchParams: P
                       {m.active ? "Deactivate" : "Activate"}
                     </button>
                   </form>
+                  {!m.active && (
+                    <div className="mt-2 text-left">
+                      <Disclosure summary="Delete…" defaultOpen={false}>
+                        <div className="mt-2 w-72 space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                          <p>
+                            Permanently deletes this merchant&apos;s login, sales days, invoices, items, employees,
+                            attendance and uploaded files. This can&apos;t be undone. The Edit log keeps its entries.
+                          </p>
+                          <ActionForm action={deleteMerchant.bind(null, m.id)} submitLabel="Delete permanently" resetOnSuccess={false} className="space-y-2">
+                            <label className="block">
+                              Type <b>{m.businessName}</b> to confirm
+                              <input className="input mt-1" name="confirm" required autoComplete="off" aria-label={`Type ${m.businessName} to confirm`} />
+                            </label>
+                          </ActionForm>
+                        </div>
+                      </Disclosure>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}

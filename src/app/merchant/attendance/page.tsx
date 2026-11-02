@@ -6,7 +6,7 @@ import { loadSheet, pickMonth, recentMonths } from "@/lib/attendance-sheet";
 import { requireMerchant } from "@/lib/auth";
 import { formatDate, isValidDate, todayIST } from "@/lib/gst";
 import { isEmployedOn, monthLabel } from "@/lib/payroll";
-import { markAllPresent, setAttendance } from "../employees/actions";
+import { markAllPresent, setAttendance, setAttendanceMany } from "../employees/actions";
 
 const shiftDay = (d: string, n: number) => {
   const t = new Date(d + "T00:00:00Z");
@@ -80,7 +80,7 @@ export default async function MerchantAttendance({
         {date !== today && <> · <Link href="/merchant/attendance" className="text-blue-700 hover:underline">Back to today</Link></>}
       </p>
       <AttendanceDay key={date} date={date} month={month} editable={date <= today} rows={rows}
-        setMark={setAttendance} markAllPresent={markAllPresent} />
+        setMark={setAttendance} setMarkMany={setAttendanceMany} markAllPresent={markAllPresent} />
     </div>
   );
 }
