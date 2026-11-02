@@ -89,25 +89,76 @@ export async function audit(tx: Prisma.TransactionClient, input: AuditInput) {
   await tx.auditLog.create({ data: { ...fields, hash: hashEntry(fields) } });
 }
 
-/** Recomputes the whole chain. Returns the first broken entry, if any. */
-export async function verifyAuditChain(): Promise<{ ok: true; count: number } | { ok: false; count: number; brokenAtSeq: number; reason: string }> {
-  let prevHash = GENESIS;
-  let count = 0;
-  let cursor: number | undefined;
+export type ChainCheck =
+  | { ok: true; count: number; checkedNow: number; full: boolean }
+  | { ok: false; count: number; checkedNow: number; full: boolean; brokenAtSeq: number; reason: string };
+
+/**
+ * Checks the chain. Normally it starts from the last verified entry (the
+ * checkpoint) and reads only entries added since, so the Edit log page stays
+ * fast however long the log gets. Rewriting history before the checkpoint
+ * would change the checkpoint entry's hash, which is checked first.
+ *
+ * A full check ({ full: true }) re-reads every entry from the first one; it
+ * also catches a single edited entry hidden before the checkpoint. It runs
+ * nightly (deploy/verify-audit.sh) and from the Edit log page on request.
+ */
+export async function verifyAuditChain({ full = false } = {}): Promise<ChainCheck> {
+  let start = { seq: 0, hash: GENESIS, count: 0 };
+  if (!full) {
+    const cp = await db.auditCheckpoint.findUnique({ where: { kind: "latest" } });
+    if (cp?.ok && cp.seq > 0) {
+      const row = await db.auditLog.findUnique({ where: { seq: cp.seq } });
+      if (!row || row.hash !== cp.hash || hashEntry(row) !== cp.hash) {
+        return saveCheck({
+          ok: false, full, count: cp.count, checkedNow: 0, brokenAtSeq: cp.seq,
+          reason: "an entry that was already verified has been changed or removed",
+        }, start);
+      }
+      start = { seq: cp.seq, hash: cp.hash, count: cp.count };
+    }
+  }
+
+  let prevHash = start.hash;
+  let lastSeq = start.seq;
+  let checkedNow = 0;
   for (;;) {
-    const batch = await db.auditLog.findMany({
-      orderBy: { seq: "asc" }, take: 1000, ...(cursor ? { skip: 1, cursor: { seq: cursor } } : {}),
-    });
+    const batch = await db.auditLog.findMany({ where: { seq: { gt: lastSeq } }, orderBy: { seq: "asc" }, take: 1000 });
     if (batch.length === 0) break;
     for (const e of batch) {
-      if (e.prevHash !== prevHash) return { ok: false, count, brokenAtSeq: e.seq, reason: "an earlier entry was removed or changed" };
-      if (hashEntry(e) !== e.hash) return { ok: false, count, brokenAtSeq: e.seq, reason: "this entry's contents were changed" };
+      const fail = (reason: string) => saveCheck({
+        ok: false, full, count: start.count + checkedNow, checkedNow, brokenAtSeq: e.seq, reason,
+      }, start);
+      if (e.prevHash !== prevHash) return fail("an earlier entry was removed or changed");
+      if (hashEntry(e) !== e.hash) return fail("this entry's contents were changed");
       prevHash = e.hash;
-      count++;
+      lastSeq = e.seq;
+      checkedNow++;
     }
-    cursor = batch[batch.length - 1].seq;
   }
-  return { ok: true, count };
+  return saveCheck({ ok: true, full, count: start.count + checkedNow, checkedNow }, { seq: lastSeq, hash: prevHash, count: start.count + checkedNow });
+}
+
+async function saveCheck(result: ChainCheck, reached: { seq: number; hash: string; count: number }) {
+  const data = {
+    seq: reached.seq, hash: reached.hash, count: reached.count, ok: result.ok, checkedAt: new Date(),
+    brokenAtSeq: result.ok ? null : result.brokenAtSeq, reason: result.ok ? null : result.reason,
+  };
+  const kinds = result.full ? ["latest", "full"] : ["latest"];
+  for (const kind of kinds) {
+    // A failed quick check keeps the old checkpoint's position, so the next check starts over from the beginning.
+    if (!result.ok && kind === "latest") {
+      await db.auditCheckpoint.upsert({ where: { kind }, create: { kind, ...data, seq: 0, hash: GENESIS, count: 0 }, update: { ok: false, brokenAtSeq: data.brokenAtSeq, reason: data.reason, checkedAt: data.checkedAt } });
+      continue;
+    }
+    await db.auditCheckpoint.upsert({ where: { kind }, create: { kind, ...data }, update: data });
+  }
+  return result;
+}
+
+/** When the whole log was last re-read, and the outcome. */
+export function lastFullCheck() {
+  return db.auditCheckpoint.findUnique({ where: { kind: "full" } });
 }
 
 export const actorOf = (u: { id: string; name: string; role: string }): Actor => ({ id: u.id, name: u.name, role: u.role });

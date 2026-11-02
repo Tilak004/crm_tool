@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { formatPaise } from "@/lib/gst";
 import { ATTENDANCE, isEmployedOn, monthDates, summarizeMonth, type AttendanceStatus } from "@/lib/payroll";
+import { SaveStatus, useMarkSaver, type SaveMarks } from "./useMarkSaver";
 
 type Row = {
   id: string; name: string; designation: string | null; joinDate: string; leftDate: string | null;
@@ -13,22 +14,24 @@ type Result = { ok: boolean; message: string };
 
 const STYLE = Object.fromEntries(ATTENDANCE.map((a) => [a.key, a]));
 const weekday = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("en-IN", { weekday: "narrow", timeZone: "UTC" });
+const noSave: SaveMarks = async () => ({ ok: false, message: "Read only", failed: [] });
 const isSunday = (d: string) => new Date(d + "T00:00:00Z").getUTCDay() === 0;
 
 /**
- * Month attendance sheet. With setMark/markAllPresent it is editable (merchant):
+ * Month attendance sheet. With saveMarks/markAllPresent it is editable (merchant):
  * pick a mark, then click cells; clicking a cell that already has that mark clears it.
  */
 export default function AttendanceGrid({
-  month, today, rows, setMark, markAllPresent,
+  month, today, rows, saveMarks, markAllPresent,
 }: {
   month: string;
   today: string;
   rows: Row[];
-  setMark?: (employeeId: string, date: string, status: string | null) => Promise<Result>;
+  saveMarks?: SaveMarks;
   markAllPresent?: (date: string) => Promise<Result>;
 }) {
-  const editable = !!setMark;
+  const editable = !!saveMarks;
+  const saver = useMarkSaver(saveMarks ?? noSave);
   const dates = monthDates(month);
   const [marks, setMarks] = useState<Record<string, Record<string, string>>>(() =>
     Object.fromEntries(rows.map((r) => [r.id, { ...r.marks }])));
@@ -47,14 +50,14 @@ export default function AttendanceGrid({
     });
     apply(next); // optimistic
     setMessage(null);
-    startTransition(async () => {
-      const res = await setMark!(row.id, date, next);
+    void saver.mark(row.id, date, next).then((res) => {
       if (!res.ok) { apply(prev); setMessage(res); }
     });
   }
 
   function fillDay() {
     startTransition(async () => {
+      await saver.flush();
       const res = await markAllPresent!(bulkDate);
       setMessage(res);
       if (res.ok) setMarks((m) => Object.fromEntries(rows.map((r) => {
@@ -87,6 +90,7 @@ export default function AttendanceGrid({
             ))}
           </div>
           <span className="text-xs text-gray-500">Click a day to apply; click again to clear.</span>
+          <SaveStatus state={saver.state} />
           <div className="ml-auto flex items-center gap-2">
             <select className="input w-36 py-1" value={bulkDate} onChange={(e) => setBulkDate(e.target.value)} aria-label="Date to mark everyone present">
               {dates.filter((d) => d <= today).map((d) => <option key={d} value={d}>{Number(d.slice(8))} {weekday(d)}</option>)}

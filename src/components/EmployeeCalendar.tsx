@@ -1,27 +1,30 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { formatPaise } from "@/lib/gst";
 import { ATTENDANCE, isEmployedOn, monthDates, summarizeMonth, type AttendanceStatus } from "@/lib/payroll";
+import { SaveStatus, useMarkSaver, type SaveMarks } from "./useMarkSaver";
 
 type Result = { ok: boolean; message: string };
+const noSave: SaveMarks = async () => ({ ok: false, message: "Read only", failed: [] });
 const STYLE = Object.fromEntries(ATTENDANCE.map((a) => [a.key, a]));
 
-/** One employee's month as a calendar with the salary breakdown. Editable when setMark is given. */
+/** One employee's month as a calendar with the salary breakdown. Editable when saveMarks is given. */
 export default function EmployeeCalendar({
-  employee, month, today, monthlyPaise, initialMarks, setMark,
+  employee, month, today, monthlyPaise, initialMarks, saveMarks,
 }: {
   employee: { id: string; name: string; joinDate: string; leftDate: string | null };
   month: string;
   today: string;
   monthlyPaise: number | null;
   initialMarks: Record<string, string>;
-  setMark?: (employeeId: string, date: string, status: string | null) => Promise<Result>;
+  saveMarks?: SaveMarks;
 }) {
+  const setMark = !!saveMarks;
+  const saver = useMarkSaver(saveMarks ?? noSave);
   const [marks, setMarks] = useState(initialMarks);
   const [brush, setBrush] = useState<AttendanceStatus>("P");
   const [message, setMessage] = useState<Result | null>(null);
-  const [, startTransition] = useTransition();
 
   const dates = monthDates(month);
   const firstWeekday = new Date(dates[0] + "T00:00:00Z").getUTCDay(); // 0 = Sunday
@@ -40,8 +43,7 @@ export default function EmployeeCalendar({
     });
     apply(next);
     setMessage(null);
-    startTransition(async () => {
-      const res = await setMark(employee.id, date, next);
+    void saver.mark(employee.id, date, next).then((res) => {
       if (!res.ok) { apply(prev); setMessage(res); }
     });
   }
@@ -58,6 +60,7 @@ export default function EmployeeCalendar({
             </button>
           ))}
           <span className="self-center text-xs text-gray-500">Tap a day to apply; tap again to clear.</span>
+          <span className="ml-auto self-center"><SaveStatus state={saver.state} /></span>
         </div>
       )}
       {message && <p className="text-sm text-red-600">{message.message}</p>}

@@ -150,35 +150,83 @@ export async function changeSalary(employeeId: string, _prev: Result | null, for
   return { ok: true, message: "Salary updated." };
 }
 
-/** Sets (or clears, with status null) one day's mark. */
-export async function setAttendance(employeeId: string, date: string, status: string | null): Promise<Result> {
-  const { user, merchant } = await requireMerchant();
-  const e = await ownEmployee(merchant.id, employeeId);
-  if (!e) return { ok: false, message: "Employee not found." };
-  if (!isValidDate(date) || date > todayIST()) return { ok: false, message: "You can't mark future dates." };
-  if (!isEmployedOn(e, date)) return { ok: false, message: `${e.name} wasn't employed on that date.` };
-  if (status !== null && !isAttendanceStatus(status)) return { ok: false, message: "Unknown mark." };
+export type MarkChange = { employeeId: string; date: string; status: string | null };
+export type SaveMarksResult = { ok: boolean; message: string; failed: { employeeId: string; date: string; message: string }[] };
 
-  await db.$transaction(async (tx) => {
-    const prev = await tx.attendance.findUnique({ where: { employeeId_date: { employeeId, date } } });
-    if ((prev?.status ?? null) === status) return;
-    if (status === null) await tx.attendance.delete({ where: { id: prev!.id } });
-    else {
-      await tx.attendance.upsert({
-        where: { employeeId_date: { employeeId, date } },
-        create: { employeeId, date, status, updatedById: user.id },
-        update: { status, updatedById: user.id },
-      });
+/**
+ * Saves a batch of attendance marks (status null clears a mark). The screens
+ * collect taps for a few seconds and send them together, so a round of marking
+ * becomes one edit-log entry per date instead of one per tap.
+ */
+export async function saveAttendance(changes: MarkChange[]): Promise<SaveMarksResult> {
+  const { user, merchant } = await requireMerchant();
+  if (!Array.isArray(changes) || changes.length === 0) return { ok: true, message: "Nothing to save.", failed: [] };
+  if (changes.length > 5000) return { ok: false, message: "Too many changes at once.", failed: [] };
+
+  // The last change to the same employee and day wins.
+  const latest = new Map<string, MarkChange>();
+  for (const c of changes) {
+    if (typeof c?.employeeId !== "string" || typeof c?.date !== "string" || (c.status !== null && typeof c.status !== "string")) {
+      return { ok: false, message: "Invalid request.", failed: [] };
     }
-    await audit(tx, {
-      actor: actorOf(user), action: "ATTENDANCE_MARKED", merchant, saleDate: date,
-      summary: `${e.name}: ${attendanceLabel(status)}${prev ? ` (was ${attendanceLabel(prev.status)})` : ""}`,
-      details: { employeeId, date, from: prev?.status ?? null, to: status },
-    });
+    latest.set(`${c.employeeId}|${c.date}`, c);
+  }
+  const wanted = [...latest.values()];
+  const employees = await db.employee.findMany({
+    where: { merchantId: merchant.id, id: { in: [...new Set(wanted.map((c) => c.employeeId))] } },
+    include: { attendance: { where: { date: { in: [...new Set(wanted.map((c) => c.date))] } } } },
   });
-  revalidatePath("/merchant/attendance");
-  revalidatePath("/ca", "layout");
-  return { ok: true, message: "Saved" };
+  const byId = new Map(employees.map((e) => [e.id, e]));
+  const today = todayIST();
+
+  const failed: SaveMarksResult["failed"] = [];
+  const apply: { e: (typeof employees)[number]; date: string; from: string | null; to: string | null }[] = [];
+  for (const c of wanted) {
+    const e = byId.get(c.employeeId);
+    const fail = (message: string) => failed.push({ employeeId: c.employeeId, date: c.date, message });
+    if (!e) { fail("Employee not found."); continue; }
+    if (!isValidDate(c.date) || c.date > today) { fail("You can't mark future dates."); continue; }
+    if (!isEmployedOn(e, c.date)) { fail(`${e.name} wasn't employed on that date.`); continue; }
+    if (c.status !== null && !isAttendanceStatus(c.status)) { fail("Unknown mark."); continue; }
+    const from = e.attendance.find((a) => a.date === c.date)?.status ?? null;
+    if (from !== c.status) apply.push({ e, date: c.date, from, to: c.status });
+  }
+
+  if (apply.length > 0) {
+    await db.$transaction(async (tx) => {
+      for (const a of apply) {
+        if (a.to === null) await tx.attendance.delete({ where: { employeeId_date: { employeeId: a.e.id, date: a.date } } });
+        else {
+          await tx.attendance.upsert({
+            where: { employeeId_date: { employeeId: a.e.id, date: a.date } },
+            create: { employeeId: a.e.id, date: a.date, status: a.to, updatedById: user.id },
+            update: { status: a.to, updatedById: user.id },
+          });
+        }
+      }
+      // One entry per date, e.g. "Present: Ravi, Sita · Absent: Gopal (was Present)".
+      for (const date of [...new Set(apply.map((a) => a.date))].sort()) {
+        const onDate = apply.filter((a) => a.date === date);
+        const groups = new Map<string | null, string[]>();
+        for (const a of onDate) {
+          groups.set(a.to, [...(groups.get(a.to) ?? []), `${a.e.name}${a.from ? ` (was ${attendanceLabel(a.from)})` : ""}`]);
+        }
+        await audit(tx, {
+          actor: actorOf(user), action: "ATTENDANCE_MARKED", merchant, saleDate: date,
+          summary: [...groups].map(([to, names]) => `${attendanceLabel(to)}: ${names.join(", ")}`).join(" · "),
+          details: { date, marks: onDate.map((a) => ({ employeeId: a.e.id, name: a.e.name, from: a.from, to: a.to })) },
+        });
+      }
+    }, { timeout: 30_000 });
+    revalidatePath("/merchant/attendance", "layout");
+    revalidatePath("/ca", "layout");
+  }
+  const saved = wanted.length - failed.length;
+  return {
+    ok: failed.length === 0,
+    message: failed.length === 0 ? "Saved" : `${saved} saved, ${failed.length} not saved: ${failed[0].message}`,
+    failed,
+  };
 }
 
 /** Marks every employee present on a date, skipping anyone already marked or not employed then. */
@@ -204,39 +252,4 @@ export async function markAllPresent(date: string): Promise<Result> {
   revalidatePath("/merchant/attendance");
   revalidatePath("/ca", "layout");
   return { ok: true, message: `${targets.length} marked present.` };
-}
-
-/** Gives the selected employees the same mark (or clears it, with status null) on one date. */
-export async function setAttendanceMany(employeeIds: string[], date: string, status: string | null): Promise<Result> {
-  const { user, merchant } = await requireMerchant();
-  if (!isValidDate(date) || date > todayIST()) return { ok: false, message: "You can't mark future dates." };
-  if (status !== null && !isAttendanceStatus(status)) return { ok: false, message: "Unknown mark." };
-  const ids = [...new Set(employeeIds)].slice(0, 1000);
-  const employees = await db.employee.findMany({
-    where: { merchantId: merchant.id, id: { in: ids } },
-    include: { attendance: { where: { date } } },
-  });
-  const targets = employees.filter((e) => isEmployedOn(e, date) && (e.attendance[0]?.status ?? null) !== status);
-  if (targets.length === 0) return { ok: true, message: "Nothing to change." };
-
-  await db.$transaction(async (tx) => {
-    for (const e of targets) {
-      if (status === null) await tx.attendance.delete({ where: { id: e.attendance[0].id } });
-      else {
-        await tx.attendance.upsert({
-          where: { employeeId_date: { employeeId: e.id, date } },
-          create: { employeeId: e.id, date, status, updatedById: user.id },
-          update: { status, updatedById: user.id },
-        });
-      }
-    }
-    await audit(tx, {
-      actor: actorOf(user), action: "ATTENDANCE_MARKED", merchant, saleDate: date,
-      summary: `${attendanceLabel(status)}: ${targets.map((e) => `${e.name}${e.attendance[0] ? ` (was ${attendanceLabel(e.attendance[0].status)})` : ""}`).join(", ")}`,
-      details: { date, to: status, changes: targets.map((e) => ({ employeeId: e.id, from: e.attendance[0]?.status ?? null })) },
-    });
-  });
-  revalidatePath("/merchant/attendance");
-  revalidatePath("/ca", "layout");
-  return { ok: true, message: `${targets.length} updated.` };
 }

@@ -276,6 +276,20 @@ model AuditLog {
   @@index([merchantId, seq])
 }
 
+// How far the edit log has been verified, so each check only reads entries
+// added since (lib/audit.ts). kind "latest" = last check of any kind;
+// kind "full" = last check that re-read the whole log from the first entry.
+model AuditCheckpoint {
+  kind        String   @id // latest | full
+  seq         Int // last entry verified (0 = empty log)
+  hash        String // that entry's hash
+  count       Int // entries verified from the start
+  ok          Boolean
+  brokenAtSeq Int?
+  reason      String?
+  checkedAt   DateTime @default(now())
+}
+
 // One row per import of the HSN directory.
 model HsnImport {
   id            String   @id @default(cuid())

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { ATTENDANCE } from "@/lib/payroll";
+import { SaveStatus, useMarkSaver, type SaveMarks } from "./useMarkSaver";
 
 export type DayRow = { id: string; name: string; designation: string | null; mark: string | null; monthLeaves: number };
 type Result = { ok: boolean; message: string };
@@ -32,16 +33,16 @@ type FilterKey = (typeof FILTERS)[number]["key"];
  * filter by mark, and tick several people to mark them together.
  */
 export default function AttendanceDay({
-  date, editable, rows, month, setMark, setMarkMany, markAllPresent,
+  date, editable, rows, month, saveMarks, markAllPresent,
 }: {
   date: string;
   editable: boolean;
   rows: DayRow[];
   month: string;
-  setMark: (employeeId: string, date: string, status: string | null) => Promise<Result>;
-  setMarkMany: (employeeIds: string[], date: string, status: string | null) => Promise<Result>;
+  saveMarks: SaveMarks;
   markAllPresent: (date: string) => Promise<Result>;
 }) {
+  const saver = useMarkSaver(saveMarks);
   const [marks, setMarks] = useState<Record<string, string | null>>(() => Object.fromEntries(rows.map((r) => [r.id, r.mark])));
   const [message, setMessage] = useState<Result | null>(null);
   const [query, setQuery] = useState("");
@@ -67,26 +68,28 @@ export default function AttendanceDay({
     const next = prev === status ? null : status;
     setMarks((m) => ({ ...m, [row.id]: next }));
     setMessage(null);
-    startTransition(async () => {
-      const res = await setMark(row.id, date, next);
+    void saver.mark(row.id, date, next).then((res) => {
       if (!res.ok) { setMarks((m) => ({ ...m, [row.id]: prev })); setMessage(res); }
     });
   }
 
   function markSelected(status: string | null) {
     const ids = [...selected];
-    const before = marks;
-    setMarks((m) => ({ ...m, ...Object.fromEntries(ids.map((id) => [id, status])) }));
     setSelected(new Set());
-    startTransition(async () => {
-      const res = await setMarkMany(ids, date, status);
-      setMessage(res);
-      if (!res.ok) setMarks(before);
-    });
+    setMessage(null);
+    for (const id of ids) {
+      const prev = markOf(id);
+      setMarks((m) => ({ ...m, [id]: status }));
+      void saver.mark(id, date, status).then((res) => {
+        if (!res.ok) { setMarks((m) => ({ ...m, [id]: prev })); setMessage(res); }
+      });
+    }
+    void saver.flush(); // a bulk action is saved straight away, with any taps still waiting
   }
 
   function everyonePresent() {
     startTransition(async () => {
+      await saver.flush();
       const res = await markAllPresent(date);
       setMessage(res);
       if (res.ok) setMarks((m) => Object.fromEntries(rows.map((r) => [r.id, m[r.id] ?? "P"])));
@@ -144,6 +147,7 @@ export default function AttendanceDay({
       {message && <p className={`text-sm ${message.ok ? "text-green-700" : "text-red-600"}`}>{message.message}</p>}
 
       <div className="card overflow-hidden">
+        {editable && <div className="flex justify-end border-b border-gray-100 px-3 py-1"><SaveStatus state={saver.state} /></div>}
         <div className="flex items-center gap-3 border-b border-gray-200 bg-gray-50 px-3 py-2">
           {editable && (
             <input type="checkbox" className="h-5 w-5 shrink-0" checked={allShownSelected} onChange={toggleAllShown}

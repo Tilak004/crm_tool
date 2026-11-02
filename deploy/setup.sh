@@ -140,6 +140,7 @@ systemctl reload caddy || systemctl restart caddy
 step "Scheduling daily backups (kept 14 days in $BACKUP_DIR)"
 install -m 755 "$APP_DIR/deploy/backup.sh" /usr/local/bin/gst-portal-backup
 echo "30 21 * * * root /usr/local/bin/gst-portal-backup" > /etc/cron.d/gst-portal-backup   # 21:30 UTC = 3:00 am IST
+echo "0 22 * * * root bash /opt/gst-portal/deploy/verify-audit.sh >/dev/null 2>&1" > /etc/cron.d/gst-portal-audit-check   # 22:00 UTC = 3:30 am IST, after the backup
 
 echo
 echo "Done!"

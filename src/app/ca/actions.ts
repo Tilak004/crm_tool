@@ -3,7 +3,7 @@
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { actorOf, audit } from "@/lib/audit";
+import { actorOf, audit, verifyAuditChain } from "@/lib/audit";
 import { requireAdmin, requireCA } from "@/lib/auth";
 import { businessLabel, gstRegLabel, isGstRegType, parseBusinessTypes, serializeBusinessTypes } from "@/lib/business";
 import { db } from "@/lib/db";
@@ -307,6 +307,16 @@ export async function deleteMerchant(merchantId: string, _prev: FormState, form:
   await deleteMerchantUploads(merchant.id);
   revalidatePath("/ca", "layout");
   redirect(`/ca/admin/merchants?deleted=${encodeURIComponent(merchant.businessName)}`);
+}
+
+/** Re-reads the whole edit log (the page normally checks only new entries). */
+export async function runFullAuditCheck(): Promise<FormState> {
+  await requireAdmin();
+  const r = await verifyAuditChain({ full: true });
+  revalidatePath("/ca/audit");
+  return r.ok
+    ? { ok: true, message: `Full check passed: all ${r.count} entries intact.` }
+    : { ok: false, message: `Full check FAILED at entry #${r.brokenAtSeq}: ${r.reason}.` };
 }
 
 // ---------- Staff (admin only) ----------

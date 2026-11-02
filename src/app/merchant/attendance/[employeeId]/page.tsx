@@ -7,7 +7,7 @@ import { requireMerchant } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { todayIST } from "@/lib/gst";
 import { daysInMonth, monthLabel, salaryForMonth } from "@/lib/payroll";
-import { setAttendance } from "../../employees/actions";
+import { saveAttendance } from "../../employees/actions";
 
 export default async function EmployeeMonth({
   params, searchParams,
@@ -40,7 +40,7 @@ export default async function EmployeeMonth({
         month={month} today={todayIST()}
         monthlyPaise={salaryForMonth(e.salaries, month)}
         initialMarks={Object.fromEntries(e.attendance.map((a) => [a.date, a.status]))}
-        setMark={setAttendance}
+        saveMarks={saveAttendance}
       />
     </div>
   );
