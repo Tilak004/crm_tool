@@ -90,6 +90,7 @@ All of these are typed in the **SSH** window.
 |---|---|
 | Install the latest code from GitHub (after every push) | `sudo bash /opt/gst-portal/deploy/update.sh` |
 | Reset someone's authenticator | `sudo bash /opt/gst-portal/deploy/reset-2fa.sh <username>` |
+| Forgotten password (e.g. admin) | `sudo bash /opt/gst-portal/deploy/reset-password.sh admin` (asks for the new one) |
 | Is the app running? | `sudo systemctl status gst-portal` |
 | Restart the app | `sudo systemctl restart gst-portal` |
 | See recent errors | `sudo journalctl -u gst-portal -n 100` |
