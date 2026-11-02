@@ -1,0 +1,281 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// SQLite for local development. To move to PostgreSQL, change provider to
+// "postgresql" and point DATABASE_URL at the server.
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// role: ADMIN (CA owner) | STAFF (CA staff) | MERCHANT
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  username     String    @unique
+  passwordHash String
+  role         String
+  active       Boolean   @default(true)
+  merchantId   String?
+  merchant     Merchant? @relation(fields: [merchantId], references: [id])
+  createdAt    DateTime  @default(now())
+
+  mappedItems Item[]    @relation("MappedBy")
+  lockedDays  SaleDay[] @relation("LockedBy")
+}
+
+model Merchant {
+  id           String    @id @default(cuid())
+  businessName String
+  gstin        String?
+  state        String?
+  phone        String?
+  active       Boolean   @default(true)
+  canMapHsn    Boolean   @default(false) // admin lets this merchant map their own items to HSN codes
+  businessTypes String   @default("[]") // JSON array of keys from lib/business.ts
+  gstRegType    String? // REGULAR | COMPOSITION | UNREGISTERED
+  createdAt    DateTime  @default(now())
+
+  users    User[]
+  items    Item[]
+  saleDays  SaleDay[]
+  remarks   Remark[]
+  employees Employee[]
+}
+
+// A merchant's own item list. HSN code and GST rate are filled in by the CA.
+model Item {
+  id         String    @id @default(cuid())
+  merchantId String
+  merchant   Merchant  @relation(fields: [merchantId], references: [id])
+  name       String
+  nameKey    String // lower-cased, whitespace-collapsed name for de-duplication
+  unit       String    @default("NOS")
+  hsnCode    String?
+  gstRate    Float?
+  mappedById String?
+  mappedBy   User?     @relation("MappedBy", fields: [mappedById], references: [id])
+  mappedAt   DateTime?
+  createdAt  DateTime  @default(now())
+
+  lines        SaleLine[]
+  invoiceLines InvoiceLine[]
+
+  @@unique([merchantId, nameKey])
+}
+
+// One record per merchant per calendar day.
+model SaleDay {
+  id         String    @id @default(cuid())
+  merchantId String
+  merchant   Merchant  @relation(fields: [merchantId], references: [id])
+  date       String // YYYY-MM-DD
+  submitted  Boolean   @default(false)
+  locked     Boolean   @default(false)
+  lockedById String?
+  lockedBy   User?     @relation("LockedBy", fields: [lockedById], references: [id])
+  lockedAt   DateTime?
+  updatedAt  DateTime  @updatedAt
+  createdAt  DateTime  @default(now())
+
+  invoices    Invoice[]
+  revisions   SaleDayRevision[]
+  remarks     Remark[]
+  lines       SaleLine[]
+  payments    DayPayment[]
+  attachments DayAttachment[]
+
+  @@unique([merchantId, date])
+}
+
+// What the merchant enters: one record per invoice/transaction, with its payment
+// mode (CASH | UPI | CARD | OTHER) and the items on it.
+model Invoice {
+  id        String        @id @default(cuid())
+  saleDayId String
+  saleDay   SaleDay       @relation(fields: [saleDayId], references: [id], onDelete: Cascade)
+  invoiceNo  String
+  mode       String
+  position   Int
+  lines      InvoiceLine[]
+  // Set when a CA user added or changed this invoice; cleared once the merchant changes it.
+  caEditedAt DateTime?
+  caEditedBy String?
+
+  @@unique([saleDayId, invoiceNo])
+}
+
+// A merchant's staff member. Attendance is kept indefinitely (the screens show
+// the last 12 months); employees who leave are marked with leftDate, not deleted.
+model Employee {
+  id          String           @id @default(cuid())
+  merchantId  String
+  merchant    Merchant         @relation(fields: [merchantId], references: [id])
+  name        String
+  designation String?
+  phone       String?
+  joinDate    String // YYYY-MM-DD
+  leftDate    String? // YYYY-MM-DD, last working day
+  createdAt   DateTime         @default(now())
+  salaries    EmployeeSalary[]
+  attendance  Attendance[]
+
+  @@index([merchantId])
+}
+
+// Monthly salary history: a row applies from effectiveMonth (YYYY-MM) until the next row.
+model EmployeeSalary {
+  id             String   @id @default(cuid())
+  employeeId     String
+  employee       Employee @relation(fields: [employeeId], references: [id])
+  effectiveMonth String
+  monthlyPaise   Int
+  createdAt      DateTime @default(now())
+
+  @@unique([employeeId, effectiveMonth])
+}
+
+// One mark per employee per day. status: P (present) | A (absent) | H (half day)
+// | L (paid leave) | O (weekly off / holiday). No row = not marked yet.
+model Attendance {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  date        String // YYYY-MM-DD
+  status      String
+  updatedById String
+  updatedAt   DateTime @updatedAt
+
+  @@unique([employeeId, date])
+}
+
+// A note from the CA to a merchant, about one sales day or general (saleDayId
+// null). Never edited or deleted; seenAt is when the merchant first saw it.
+model Remark {
+  id         String    @id @default(cuid())
+  merchantId String
+  merchant   Merchant  @relation(fields: [merchantId], references: [id])
+  saleDayId  String?
+  saleDay    SaleDay?  @relation(fields: [saleDayId], references: [id])
+  authorId   String
+  authorName String
+  text       String
+  createdAt  DateTime  @default(now())
+  seenAt     DateTime?
+
+  @@index([merchantId, createdAt])
+}
+
+// Snapshot of the day taken on every merchant save, so the CA can see what was
+// changed or removed after submitting. snapshot is JSON (see lib/revisions.ts).
+model SaleDayRevision {
+  id          String   @id @default(cuid())
+  saleDayId   String
+  saleDay     SaleDay  @relation(fields: [saleDayId], references: [id], onDelete: Cascade)
+  action      String // DRAFT | SUBMIT | CA_EDIT
+  savedById   String
+  savedByName String
+  snapshot    String
+  createdAt   DateTime @default(now())
+}
+
+model InvoiceLine {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  itemId      String
+  item        Item    @relation(fields: [itemId], references: [id])
+  quantity    Float
+  amountPaise Int // inclusive of GST
+  position    Int
+}
+
+// Item-wise day totals, rebuilt from the invoices on every save (used for HSN,
+// tax and payment checks). amountPaise is the sum of the four payment-mode
+// columns; lines saved before the split existed have only amountPaise.
+model SaleLine {
+  id          String  @id @default(cuid())
+  saleDayId   String
+  saleDay     SaleDay @relation(fields: [saleDayId], references: [id], onDelete: Cascade)
+  itemId      String
+  item        Item    @relation(fields: [itemId], references: [id])
+  quantity    Float
+  amountPaise Int
+  cashPaise   Int     @default(0)
+  upiPaise    Int     @default(0)
+  cardPaise   Int     @default(0)
+  otherPaise  Int     @default(0) // NEFT, cheque, other bank transfers
+}
+
+// The merchant's day summary per payment mode (mode: CASH | UPI | CARD | OTHER).
+// invoiceCount/From/To were typed in before invoice-wise entry; they are now
+// derived from Invoice and left null on new saves.
+model DayPayment {
+  id           String  @id @default(cuid())
+  saleDayId    String
+  saleDay      SaleDay @relation(fields: [saleDayId], references: [id], onDelete: Cascade)
+  mode         String
+  amountPaise  Int?
+  invoiceCount Int?
+  invoiceFrom  String?
+  invoiceTo    String?
+
+  @@unique([saleDayId, mode])
+}
+
+// Invoice photos/PDFs. Files live on disk under UPLOAD_DIR, not in the database.
+model DayAttachment {
+  id           String   @id @default(cuid())
+  saleDayId    String
+  saleDay      SaleDay  @relation(fields: [saleDayId], references: [id], onDelete: Cascade)
+  mode         String? // payment mode the invoices belong to, if given
+  fileName     String
+  mimeType     String
+  size         Int
+  storageKey   String   @unique
+  uploadedById String
+  createdAt    DateTime @default(now())
+}
+
+// Official HSN (goods) and SAC (services) codes from the GST portal's
+// "Download HSN Directory" file. Codes and descriptions only; the file has no rates.
+model HsnCode {
+  code        String @id
+  description String
+  kind        String // GOODS | SERVICE
+  searchText  String // " code description " lower-cased, punctuation as spaces (see toSearchText)
+}
+
+// Append-only record of every change made by merchants and CA users. Each row's
+// hash covers its content plus the previous row's hash, so editing or deleting
+// a row breaks the chain (see lib/audit.ts verifyAuditChain). Nothing in the app
+// updates or deletes rows here.
+model AuditLog {
+  seq          Int      @id @default(autoincrement())
+  createdAt    DateTime
+  actorId      String
+  actorName    String
+  actorRole    String // ADMIN | STAFF | MERCHANT | SYSTEM
+  merchantId   String?
+  merchantName String?
+  saleDate     String? // YYYY-MM-DD of the sales day affected, if any
+  action       String
+  summary      String
+  details      String // JSON
+  prevHash     String
+  hash         String
+
+  @@index([merchantId, seq])
+}
+
+// One row per import of the HSN directory.
+model HsnImport {
+  id            String   @id @default(cuid())
+  source        String
+  goodsCount    Int
+  servicesCount Int
+  skipped       Int
+  importedBy    String?
+  importedAt    DateTime @default(now())
+}

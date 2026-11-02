@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local sqlite database
+prisma/*.db
+prisma/*.db-journal
+
+# uploaded invoice files
+/uploads/
+
+# template without secrets
+!.env.example
