@@ -7,7 +7,7 @@ export default function MonthPicker({ value, months, extra = {} }: { value: stri
     <form key={value} className="flex items-center gap-2 text-sm">
       {Object.entries(extra).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
       <label htmlFor="month" className="text-gray-600">Month</label>
-      <AutoSubmitSelect id="month" name="month" defaultValue={value} className="input w-48 py-1.5">
+      <AutoSubmitSelect id="month" name="month" defaultValue={value} className="input w-48 py-1.5" autoComplete="off">
         {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
       </AutoSubmitSelect>
     </form>

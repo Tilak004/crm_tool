@@ -6,6 +6,11 @@ import { markRemarksSeen, remarksForMerchant } from "@/lib/remarks";
 import { requireMerchant } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatDate, formatPaise, isValidDate, todayIST } from "@/lib/gst";
+import DailyModeChart from "@/components/DailyModeChart";
+import MonthPicker from "@/components/MonthPicker";
+import PaymentMix from "@/components/PaymentMix";
+import { monthAnalytics } from "@/lib/analytics";
+import { pickMonth, recentMonths } from "@/lib/attendance-sheet";
 import { isEmployedOn, monthLabel } from "@/lib/payroll";
 
 type DayLines = { amountPaise: number; cashPaise: number; upiPaise: number; cardPaise: number; otherPaise: number }[];
@@ -15,9 +20,9 @@ const sums = (lines: DayLines) => ({
   bank: lines.reduce((s, l) => s + l.upiPaise + l.cardPaise + l.otherPaise, 0),
 });
 
-export default async function MerchantHome({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
+export default async function MerchantHome({ searchParams }: { searchParams: Promise<{ date?: string; month?: string }> }) {
   const { user, merchant } = await requireMerchant();
-  const { date } = await searchParams;
+  const { date, month: monthParam } = await searchParams;
   if (date && isValidDate(date)) redirect(`/merchant/day/${date}`);
   const remarks = await markRemarksSeen(user, merchant, await remarksForMerchant(merchant.id, 10));
 
@@ -41,7 +46,11 @@ export default async function MerchantHome({ searchParams }: { searchParams: Pro
 
   const todayDay = days.find((d) => d.date === today);
   const t = sums(todayDay?.lines ?? []);
-  const m = sums(days.filter((d) => d.date.startsWith(month)).flatMap((d) => d.lines));
+  const a = await monthAnalytics(merchant.id, pickMonth(monthParam), today);
+  const bank = a.totals.upiPaise + a.totals.cardPaise + a.totals.otherPaise;
+  const share = (x: number) => (a.total ? `${Math.round((x / a.total) * 100)}% of sales` : "–");
+  const change = a.previous.total ? (a.total - a.previous.total) / a.previous.total : null;
+  const prevLabel = `${Number(a.previous.label.slice(8, 10))}–${Number(a.previous.label.slice(-2))} ${monthLabel(a.previous.label.slice(0, 7)).split(" ")[0]}`;
   const staff = employees.filter((e) => isEmployedOn(e, today));
   const present = staff.filter((e) => e.attendance[0]?.status === "P").length;
   const absent = staff.filter((e) => e.attendance[0]?.status === "A").length;
@@ -62,8 +71,8 @@ export default async function MerchantHome({ searchParams }: { searchParams: Pro
           {todayDay ? <StatusBadge submitted={todayDay.submitted} locked={todayDay.locked} /> : <span className="badge bg-gray-100 text-gray-600">Not started</span>}
         </div>
         <div className="grid grid-cols-2 gap-px bg-gray-100 sm:grid-cols-4">
-          <Tile label="Cash" value={formatPaise(t.cash)} className="text-emerald-700" />
-          <Tile label="Bank (UPI/Card/Other)" value={formatPaise(t.bank)} className="text-blue-700" />
+          <Tile label="Cash" value={formatPaise(t.cash)} />
+          <Tile label="Bank (UPI/Card/Other)" value={formatPaise(t.bank)} />
           <Tile label="Total" value={formatPaise(t.total)} />
           <Tile label="Invoices" value={String(todayDay?._count.invoices ?? 0)} />
         </div>
@@ -74,7 +83,7 @@ export default async function MerchantHome({ searchParams }: { searchParams: Pro
         </div>
       </section>
 
-      <div className="grid gap-5 sm:grid-cols-2">
+      <div>
         {/* Attendance today */}
         <section className="card p-4">
           <div className="mb-3 flex items-baseline">
@@ -97,16 +106,49 @@ export default async function MerchantHome({ searchParams }: { searchParams: Pro
           )}
         </section>
 
-        {/* This month */}
-        <section className="card p-4">
-          <h2 className="mb-3 font-semibold">{monthLabel(month)} so far</h2>
-          <div className="space-y-1.5 text-sm">
-            <Row label="Cash" value={formatPaise(m.cash)} />
-            <Row label="Bank" value={formatPaise(m.bank)} />
-            <Row label="Total sales" value={formatPaise(m.total)} bold />
-          </div>
-        </section>
       </div>
+
+      {/* Month analytics: how the money came in */}
+      <section className="card p-4" aria-labelledby="analytics-title">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="mr-auto">
+            <h2 id="analytics-title" className="font-semibold">Sales analytics: {monthLabel(a.month)}</h2>
+            <p className="text-xs text-gray-500">
+              {a.month === month ? `1–${Number(a.through.slice(8))} ${monthLabel(month).split(" ")[0]} (so far)` : "Whole month"}
+            </p>
+          </div>
+          <MonthPicker value={a.month} months={recentMonths()} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Kpi label="Total sales" value={formatPaise(a.total)}
+            sub={change === null ? `No sales in ${prevLabel}` : (
+              <span className={change >= 0 ? "text-[#006300]" : "text-red-700"}>
+                {change >= 0 ? "▲" : "▼"} {Math.abs(Math.round(change * 100))}% vs {prevLabel}
+              </span>
+            )} />
+          <Kpi label="Cash" value={formatPaise(a.totals.cashPaise)} sub={share(a.totals.cashPaise)} />
+          <Kpi label="Bank (UPI / Card / Other)" value={formatPaise(bank)} sub={share(bank)} />
+          <Kpi label="Invoices" value={String(a.invoices)}
+            sub={a.invoices ? `Avg ${formatPaise(Math.round(a.total / a.invoices))} each` : "–"} />
+        </div>
+
+        <div className="mt-5 grid gap-6 lg:grid-cols-5">
+          <div className="lg:col-span-2">
+            <h3 className="mb-2 text-sm font-medium text-gray-700">How you were paid</h3>
+            <PaymentMix totals={a.totals} total={a.total} invoicesByMode={a.invoicesByMode} />
+          </div>
+          <div className="lg:col-span-3">
+            <h3 className="mb-2 text-sm font-medium text-gray-700">Day by day</h3>
+            <DailyModeChart days={a.days} />
+            <p className="mt-2 text-xs text-gray-500">
+              {a.sellingDays} selling day{a.sellingDays === 1 ? "" : "s"}
+              {a.sellingDays > 0 && <> · average {formatPaise(Math.round(a.total / a.sellingDays))} per selling day</>}
+              {a.best && <> · best day {formatDate(a.best.date)} ({formatPaise(a.best.total)})</>}
+            </p>
+          </div>
+        </div>
+      </section>
 
       {remarks.length > 0 && (
         <section className="card p-4">
@@ -122,7 +164,7 @@ export default async function MerchantHome({ searchParams }: { searchParams: Pro
         <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3">
           <h2 className="mr-auto font-semibold">All days</h2>
           <form className="flex items-center gap-2">
-            <input className="input w-auto py-1.5" type="date" name="date" max={today} defaultValue={today} required aria-label="Open a date" />
+            <input className="input w-auto py-1.5" type="date" name="date" max={today} defaultValue={today} required aria-label="Open a date" autoComplete="off" />
             <button className="btn btn-secondary py-1.5">Open</button>
           </form>
         </div>
@@ -136,8 +178,8 @@ export default async function MerchantHome({ searchParams }: { searchParams: Pro
                   <span className="w-36 font-medium">{formatDate(d.date)}</span>
                   <StatusBadge submitted={d.submitted} locked={d.locked} />
                   <span className="ml-auto flex flex-wrap gap-x-4 text-sm">
-                    <span className="text-emerald-700">Cash {formatPaise(s.cash)}</span>
-                    <span className="text-blue-700">Bank {formatPaise(s.bank)}</span>
+                    <span className="text-gray-600">Cash {formatPaise(s.cash)}</span>
+                    <span className="text-gray-600">Bank {formatPaise(s.bank)}</span>
                     <span className="font-semibold">{formatPaise(s.total)}</span>
                     <span className="text-gray-500">{d._count.invoices} inv.</span>
                   </span>
@@ -168,11 +210,12 @@ function Mini({ n, label, className }: { n: number; label: string; className: st
     </div>
   );
 }
-function Row({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
+function Kpi({ label, value, sub }: { label: string; value: string; sub: React.ReactNode }) {
   return (
-    <div className="flex justify-between">
-      <span className="text-gray-600">{label}</span>
-      <span className={bold ? "font-semibold" : ""}>{value}</span>
+    <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-lg font-semibold text-gray-900">{value}</div>
+      <div className="text-xs text-gray-600">{sub}</div>
     </div>
   );
 }
